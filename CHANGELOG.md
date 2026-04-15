@@ -1,6 +1,18 @@
 # Changelog
 
-## v0.19 (current)
+## v0.20 (current)
+
+- **Mixtral-8x22B (141 B params) running end-to-end on RTX 5080 (16 GB VRAM)**
+  - Peak VRAM **12.31 GB** with CPU-offloaded embed/lm_head + FP8 streaming experts
+  - Output coherent: "The capital of France is a city that is known for its
+    romantic atmosphere, its beautiful architecture, and its"
+  - 0.07 tok/s (disk-bound on `gpu_slots=2`, 2724 disk loads, 0 cache hits)
+- `mixtral_cli.py`: `--vram-cap` flag (fraction of total VRAM reserved via
+  `torch.cuda.set_per_process_memory_fraction`) to prevent GPU driver reset
+- `mixtral_loader.py`: `_materialize_meta_buffers` re-inits non-persistent
+  rotary `inv_freq` on GPU (was stuck on meta, broke generation)
+
+## v0.19
 
 - **Perplexity quality validation** (`scripts/eval_perplexity.py`) — WikiText-2 sliding-window PPL on DeepSeek-V2-Lite-Chat
 - 8192 tokens / stride 2048:

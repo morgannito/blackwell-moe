@@ -49,11 +49,19 @@ def main():
     p.add_argument("--experts", required=True, help="Per-expert FP8 root dir")
     p.add_argument("--prompt", default="The capital of France is")
     p.add_argument("--tokens", type=int, default=64)
-    p.add_argument("--gpu-slots", type=int, default=8,
+    p.add_argument("--gpu-slots", type=int, default=4,
                    help="Number of experts pinned in VRAM")
     p.add_argument("--ram-slots", type=int, default=32,
                    help="Number of experts pinned in CPU RAM")
+    p.add_argument("--vram-cap", type=float, default=0.85,
+                   help="Fraction of total VRAM reserved for this process")
     args = p.parse_args()
+
+    if args.vram_cap < 1.0:
+        torch.cuda.set_per_process_memory_fraction(args.vram_cap)
+        total = torch.cuda.get_device_properties(0).total_memory / 1e9
+        print(f"VRAM cap: {args.vram_cap*100:.0f}% = {total*args.vram_cap:.2f} GB "
+              f"(total {total:.2f} GB)")
 
     tok = AutoTokenizer.from_pretrained(args.model)
     model, cache = load_mixtral_streaming(

@@ -30,6 +30,22 @@ _EXPERT_RE = re.compile(
 )
 
 
+def _materialize_meta_buffers(model: nn.Module, device: str) -> None:
+    """Re-init any buffer still on meta (non-persistent buffers like rotary inv_freq)."""
+    from transformers.models.mixtral.modeling_mixtral import MixtralRotaryEmbedding
+    n_fixed = 0
+    for module in model.modules():
+        if isinstance(module, MixtralRotaryEmbedding):
+            cfg = module.config
+            inv_freq, attention_scaling = module.rope_init_fn(cfg, device=device)
+            module.register_buffer("inv_freq", inv_freq, persistent=False)
+            module.attention_scaling = attention_scaling
+            module.original_inv_freq = inv_freq
+            n_fixed += 1
+    if n_fixed:
+        print(f"Re-initialized {n_fixed} rotary_emb buffers on {device}")
+
+
 def _set_param(model: nn.Module, key: str, tensor: torch.Tensor) -> None:
     parts = key.split(".")
     mod = model
@@ -77,6 +93,8 @@ def load_mixtral_streaming(
         print(f"  {shard_path.name}: GPU {mem_gb:.2f} GB")
 
     print(f"Loaded {n_loaded} non-expert tensors, skipped {n_skipped} expert tensors")
+
+    _materialize_meta_buffers(model, device)
 
     for p in model.parameters():
         p.requires_grad_(False)

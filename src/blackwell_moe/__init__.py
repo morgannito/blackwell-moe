@@ -9,7 +9,7 @@ Public API (v0.9+):
     )
 """
 
-__version__ = "0.19.0"
+__version__ = "0.20.0"
 
 from blackwell_moe.kernels.fp8_moe_v3 import fp8_moe_forward_v3
 from blackwell_moe.kernels.fp8_moe_v4 import fp8_moe_forward_v4
