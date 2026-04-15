@@ -1,6 +1,18 @@
 # Changelog
 
-## v0.10 (current)
+## v0.11 (current)
+
+- Custom Triton `scatter_add` kernel — replaces `aten::index_add_` (8 % of
+  v0.10 forward) with native bf16 atomic-add on global memory
+- `quant_fp8_per_row` and `quant_fp8_block` helpers in `kernels/fp8_quant`
+- 10 autotune configs per grouped GEMM (up from 5–6) — wider search space for sm_120
+- `scripts/verify_all.py` — single-command pass/fail across every verify script
+- `scripts/bench_matrix.py` extended: OLMoE-1B-7B, Qwen3-MoE 57B/14B, DeepSeek-V2-Lite shapes
+- `Makefile` with `install`, `test`, `bench`, `bench-matrix`, `verify`, `profile`, `lint`
+- `docs/PERF.md` — kernel profile reference, memory footprint, target bottlenecks
+- 26 unit tests (up from 18) — added scatter and FP8 helpers
+
+## v0.10
 
 - Public API: `from blackwell_moe import fp8_moe_forward_v3, int4_group_moe_forward, FastExpertCache, quant_fp8_e4m3`
 - Shared `kernels/fp8_quant.py` module, deduplicated `_quant_fp8` across 7 files
