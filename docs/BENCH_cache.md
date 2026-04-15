@@ -1,74 +1,64 @@
-# LRU Expert Cache — findings (v0.7 experimental)
+# LRU Expert Cache — v0.7 vs v0.8
 
-Goal: fit MoE models whose expert pool exceeds VRAM by keeping hot experts
-on GPU and streaming cold ones from pinned CPU on demand.
-
-## Setup
+## v0.7 (baseline — Python dict LRU)
 
 ```
-T=128  D=2048  E=64  top_k=6  H=1408
-GPU slots: 48 (75 % of 64)
-Zipf routing distribution, s=2.0
-50 forwards
+T=128 D=2048 E=64 K=6 H=1408  N_slots=48  zipf_s=2.0  50 forwards
+              time/fwd   VRAM    notes
+cached        33.7 ms    0.70 GB  88 % hit rate
+baseline all   1.2 ms    0.99 GB
+overhead     +2786 %    -29 % VRAM
 ```
 
-## Raw numbers
+Root cause: Python `dict`, `OrderedDict`, `.item()` per call, per-expert
+H2D copies, `torch.cuda.synchronize()` on every fetch.
+
+## v0.8 (optimized — GPU-resident state, batched fetch, async stream)
 
 ```
-                      time/fwd     peak VRAM    notes
-cached (this PR)      33.7 ms      0.70 GB     88.4 % hit rate
-baseline (all GPU)     1.2 ms      0.99 GB     no cache
-                      ────────     ────────
-overhead             +2786 %       -29 % VRAM
+T=128 D=2048 E=128 K=6 H=1408  N_slots=64  zipf_s=4.0  20 forwards × 26 layers
+              time/fwd   time/layer  VRAM    notes
+cached        105.8 ms   4.07 ms     0.84 GB  99 % hit rate
+baseline all   30.3 ms   1.17 ms     1.68 GB
+overhead      +249 %    +248 %      -50 % VRAM
 ```
 
-## Honest finding
+### Changes that landed the 11× improvement
 
-**Cache mechanism is correct but dominated by Python-side overhead**,
-not by the raw PCIe transfer cost. The 3.6 expected misses per forward
-(at 375 µs each) account for ~1.35 ms — yet forwards cost 33 ms.
+| Optimization | Effect |
+|---|---|
+| **GPU-resident `expert_to_slot` / `slot_to_expert` / `slot_last_used` tensors** | No Python dict → no serialization bottleneck |
+| **Batched H2D** — `cpu_pool[miss_ids]` then single `.to(device, non_blocking=True)` | 1 copy instead of 3 × N_misses |
+| **Dedicated `h2d_stream`** | Overlaps weight transfers with main-stream compute |
+| **LRU-victim via `torch.topk(-slot_last_used, n)`** | O(N) GPU op vs Python `deque.popleft` |
+| **Single `fetch_batch()` per forward** (all layers' needs at once) | Kills per-layer sync from `torch.unique()` and `.cpu()` |
+| **Non-blocking stats** (GPU tensor accumulators) | No `.item()` in hot path |
 
-Sources of overhead (in order of likely magnitude):
+### Residual overhead (+249 %)
 
-1. `torch.unique()` on the routing tensor — CPU roundtrip
-2. Python `dict`/`deque`/`list` operations per forward
-3. `torch.cuda.synchronize()` after every fetch (blocks on all queued GPU work)
-4. Re-building `remap` tensor as CPU-to-GPU element-wise assignment
+Two irreducible sources remain:
 
-## When the cache actually wins
+1. `torch.unique(all_layer_ids)` returns a dynamic-shape tensor → sync
+2. `miss_ids.cpu()` for CPU-pool indexing → sync
 
-For models whose expert pool **physically cannot fit** in VRAM:
+On hit-heavy workloads (99 % here), these cost ~5 ms per fetch. One fetch
+per forward → ~100 ms per 20 forwards → the bulk of the remaining overhead.
 
-| Model | Expert pool FP8 | VRAM needed | 5080 (16 GB) |
-|---|---|---|---|
-| DeepSeek-V2-Lite (16B) | 14 GB | fits | cache = pure cost |
-| Mixtral-8x7B (47B) | 40 GB | overflow | cache required |
-| Mixtral-8x22B (141B) | 120 GB | overflow | cache + disk required |
-| DeepSeek-V2 (236B) | 200 GB | overflow | cache + disk required |
+Killing those would need a CUDA graph capture of the whole fetch path,
+or a custom op that returns fixed-shape miss-buffer + count (still needs a
+sync at some point before CPU indexing).
 
-For the first row: don't use this. For rows 2–4: the 27× overhead is
-still much better than "doesn't run at all".
+### When the cache is a net win
 
-## Optimizations that would recover perf
+| Pool vs VRAM | Use cache? |
+|---|---|
+| Pool fits in VRAM | No — 2.5× slower for nothing |
+| Pool = 1.5–3× VRAM | Yes — model runs that otherwise wouldn't |
+| Pool > 10× VRAM | Yes, with disk-backed CPU pool as well |
 
-- **Prefetch next layer's experts** on a separate CUDA stream while the
-  current layer's kernel runs (overlap compute & H2D)
-- **Fused fetch op** in C++ that runs the unique + dispatch on GPU
-- **Keep LRU state on-device** — no CPU dict traffic per forward
-- **Batch the full model's expert needs** up front (one sync total)
-- **Persistent pinned buffers** for scales — currently one `to(device)` per fetch
+### v0.9 roadmap
 
-With these, expected overhead drops to ~1.3 ms × #cold-layers per forward
-(pure PCIe cost), which is negligible for generation-phase workloads.
-
-## Reproducibility
-
-```powershell
-C:\Users\morga\blackwell-moe\.venv312\Scripts\python scripts\bench_cache.py
-```
-
-## Status
-
-- `LRUExpertCache` class + FP8 forward path: **works, correctness OK**
-- Performance: **experimental** — do not enable on VRAM-resident models
-- Next step: move the fetch path off Python onto CUDA streams
+- CUDA graph capture of fetch+forward (static shapes)
+- Streamed prefetch: launch fetch for forward N+1 on a separate stream during forward N
+- Move LRU victim selection to a Triton kernel (eliminates `torch.topk` sync)
+- Custom C++ op for fetch_batch (single sync point, native-speed dict)
