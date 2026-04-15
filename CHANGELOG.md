@@ -1,6 +1,16 @@
 # Changelog
 
-## v0.18 (current)
+## v0.19 (current)
+
+- **Perplexity quality validation** (`scripts/eval_perplexity.py`) — WikiText-2 sliding-window PPL on DeepSeek-V2-Lite-Chat
+- 8192 tokens / stride 2048:
+  - FP8 + CPU offload: PPL 80.66 (NLL 4.39)
+  - FP8 without offload: PPL 78.02 (NLL 4.36)
+  - Delta **3.4 %** — CPU offload preserves quality
+- Mixtral-8x22B expert extraction complete: **448 files** (56 layers × 8 experts), 135 GB per-expert FP8 safetensors on `J:\models\Mixtral-8x22B-fp8-experts\`
+- Absolute PPL is elevated (Chat variant on raw WikiText), but both configs track identically → no FP8 regression
+
+## v0.18
 
 - `fp8_moe_forward_small_e` + `grouped_fp8_gemm_small_e` — Mixtral-tuned
   kernel with BLOCK_M up to 256, wide BLOCK_N up to 256, specifically for
