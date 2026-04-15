@@ -1,6 +1,23 @@
 # Changelog
 
-## v0.17 (current)
+## v0.18 (current)
+
+- `fp8_moe_forward_small_e` + `grouped_fp8_gemm_small_e` — Mixtral-tuned
+  kernel with BLOCK_M up to 256, wide BLOCK_N up to 256, specifically for
+  E ≤ 8 / top_k ≤ 2 workloads (Mixtral-8x7B, 8x22B)
+- Bench matrix extended with Mixtral-8x22B shapes (prefill T=512 and
+  decode T=16) at the real (D=6144, H=16384) dimensions
+- Mixtral-8x22B decode on RTX 5080:
+  - bf16: 2 291 tok/s
+  - fp8_v3: 4 604 tok/s
+  - fp8_v4: 4 440 tok/s
+  - **fp8_small_e: 4 707 tok/s** ← best, 2.05× bf16
+- Mixtral-8x22B prefill (T=512):
+  - fp8_v4: **101 261 tok/s** (2.66× bf16)
+  - fp8_small_e: 94 055 tok/s
+- Mixtral-8x22B download complete (282 GB); expert extraction in progress
+
+## v0.17
 
 - **Async prefetch**: `ThreeTierExpertCache.prefetch_layer()` issues
   background disk → RAM loads on a `ThreadPoolExecutor`, called from
