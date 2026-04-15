@@ -127,8 +127,11 @@ class StreamingDeepseekMoE(nn.Module):
         shape = hidden_states.shape
         x = hidden_states.reshape(-1, self.hidden_dim).to(torch.bfloat16)
         shared = self.shared_experts(hidden_states).reshape(-1, self.hidden_dim)
+        next_layer = self.layer_idx + 1
+        prefetch = next_layer if next_layer < self.cache.n_layers else None
         routed = streaming_moe_forward(
             x, self.w_router, self.cache, self.layer_idx, top_k=self.top_k,
+            prefetch_next_layer=prefetch,
         )
         if self.routed_scale != 1.0:
             routed = routed * self.routed_scale

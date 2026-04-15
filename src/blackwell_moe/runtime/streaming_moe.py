@@ -35,8 +35,21 @@ def streaming_moe_forward(
     cache: ThreeTierExpertCache,
     layer_idx: int,
     top_k: int,
+    prefetch_next_layer: int | None = None,
 ) -> torch.Tensor:
+    """Streaming MoE forward.
+
+    Args
+    ----
+    prefetch_next_layer : if not None, kick off async disk→RAM load for that
+        layer's experts before the current layer's compute starts. Hides
+        the disk cost behind the matmul.
+    """
     T, D = x.shape
+
+    # Kick off async prefetch for the next layer (does not block)
+    if prefetch_next_layer is not None:
+        cache.prefetch_layer(prefetch_next_layer)
 
     # Routing — we need original [0, E_total) indices to query the cache
     logits = x.to(torch.float32) @ w_gate.to(torch.float32)

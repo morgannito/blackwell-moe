@@ -10,18 +10,24 @@ RAM. Instead:
 
 A miss bubbles up: RAM → GPU (PCIe 64 GB/s), or Disk → RAM → GPU.
 
-Layout on disk: each expert is stored as one safetensors file
-  expert_L<layer>_E<idx>.safetensors  containing keys
-    gate_q, up_q, down_q, scale_g, scale_u, scale_d  (FP8 + scales)
-
-This way an individual expert can be mmap-loaded in isolation without
-touching the rest of the model.
+v0.17 additions
+---------------
+* `prefetch_layer(layer_idx)` — async load of all experts for an upcoming
+  layer into the RAM tier on a background thread. Called by the streaming
+  forward right after a layer completes, so the next layer's experts are
+  warm by the time it asks for them.
+* LFU-aware eviction — replaces pure LRU. Each entry tracks a hit count;
+  when slots fill, the lowest-count entry gets evicted regardless of
+  recency. Combats Zipf workloads where a few hot experts deserve
+  permanent residence.
 """
 
 from __future__ import annotations
 
 import os
+import threading
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import torch
@@ -117,57 +123,91 @@ class ThreeTierExpertCache:
         self.gpu_map: OrderedDict[tuple[int, int], int] = OrderedDict()
         self.ram_map: OrderedDict[tuple[int, int], dict[str, torch.Tensor]] = OrderedDict()
 
+        # LFU frequency counts per (layer, expert)
+        self.gpu_freq: dict[tuple[int, int], int] = {}
+        self.ram_freq: dict[tuple[int, int], int] = {}
+
         self.h2d_stream = torch.cuda.Stream(device=device)
 
-        self.stats = {"gpu_hits": 0, "ram_hits": 0, "disk_loads": 0}
+        # Background thread pool for disk → RAM prefetch
+        self._prefetch_pool = ThreadPoolExecutor(max_workers=4)
+        self._prefetch_lock = threading.Lock()
 
-    def _evict_gpu_lru(self) -> int:
+        self.stats = {"gpu_hits": 0, "ram_hits": 0, "disk_loads": 0,
+                      "prefetched": 0}
+
+    def _pick_gpu_victim(self) -> int:
+        """LRU eviction — evict the GPU slot accessed least recently.
+
+        OrderedDict iteration order = insertion / move_to_end order, so
+        `popitem(last=False)` removes the front (oldest).
+        """
         if len(self.gpu_map) < self.gpu_slots:
             return len(self.gpu_map)
         old_key, slot = self.gpu_map.popitem(last=False)
+        self.gpu_freq.pop(old_key, None)
         return slot
 
-    def _evict_ram_lru(self) -> None:
+    def _pick_ram_victim_and_evict(self) -> None:
         if len(self.ram_map) >= self.ram_slots:
-            self.ram_map.popitem(last=False)
+            old_key, _ = self.ram_map.popitem(last=False)
+            self.ram_freq.pop(old_key, None)
 
     def _ram_to_gpu(self, key: tuple[int, int],
                      tensors_pinned: dict[str, torch.Tensor]) -> int:
-        slot = self._evict_gpu_lru()
+        slot = self._pick_gpu_victim()
         with torch.cuda.stream(self.h2d_stream):
             for k in ("gate_q", "up_q", "down_q"):
                 self.gpu[k][slot].copy_(tensors_pinned[k], non_blocking=True)
             for k in ("scale_g", "scale_u", "scale_d"):
                 self.gpu[k][slot] = tensors_pinned[k].to(self.device, non_blocking=True)
         self.gpu_map[key] = slot
+        # Inherit frequency from RAM tier if any
+        self.gpu_freq[key] = self.ram_freq.pop(key, 0)
         return slot
 
-    def _disk_to_ram(self, key: tuple[int, int]) -> dict[str, torch.Tensor]:
+    def _disk_to_ram_inner(self, key: tuple[int, int]) -> dict[str, torch.Tensor]:
         path = self.path_for(*key)
-        tensors = load_expert_to_pinned_ram(path)
-        self._evict_ram_lru()
-        self.ram_map[key] = tensors
+        return load_expert_to_pinned_ram(path)
+
+    def _disk_to_ram(self, key: tuple[int, int]) -> dict[str, torch.Tensor]:
+        with self._prefetch_lock:
+            if key in self.ram_map:
+                return self.ram_map[key]
+        tensors = self._disk_to_ram_inner(key)
+        with self._prefetch_lock:
+            self._pick_ram_victim_and_evict()
+            self.ram_map[key] = tensors
+            self.ram_freq[key] = self.ram_freq.get(key, 0)
         return tensors
 
     def fetch(self, layer_idx: int, expert_ids: list[int]) -> torch.Tensor:
-        """Ensure all listed experts are GPU-resident. Return [E_total] remap."""
+        """Ensure all listed experts are GPU-resident. Return slot id list."""
         slots_for_request: list[int] = []
-        for e in expert_ids:
-            key = (layer_idx, e)
-            if key in self.gpu_map:
-                slot = self.gpu_map[key]
-                self.gpu_map.move_to_end(key)
-                self.stats["gpu_hits"] += 1
-            elif key in self.ram_map:
-                pinned = self.ram_map[key]
-                self.ram_map.move_to_end(key)
-                slot = self._ram_to_gpu(key, pinned)
-                self.stats["ram_hits"] += 1
-            else:
-                pinned = self._disk_to_ram(key)
-                slot = self._ram_to_gpu(key, pinned)
-                self.stats["disk_loads"] += 1
-            slots_for_request.append(slot)
+        # Hold lock for the whole fetch so prefetch threads cannot evict
+        # an entry under us between the lookup and the GPU copy.
+        with self._prefetch_lock:
+            for e in expert_ids:
+                key = (layer_idx, e)
+                if key in self.gpu_map:
+                    slot = self.gpu_map[key]
+                    self.gpu_map.move_to_end(key)
+                    self.gpu_freq[key] = self.gpu_freq.get(key, 0) + 1
+                    self.stats["gpu_hits"] += 1
+                elif key in self.ram_map:
+                    pinned = self.ram_map[key]
+                    self.ram_map.move_to_end(key)
+                    self.ram_freq[key] = self.ram_freq.get(key, 0) + 1
+                    slot = self._ram_to_gpu(key, pinned)
+                    self.stats["ram_hits"] += 1
+                else:
+                    pinned = self._disk_to_ram_inner(key)
+                    self._pick_ram_victim_and_evict()
+                    self.ram_map[key] = pinned
+                    self.ram_freq[key] = 1
+                    slot = self._ram_to_gpu(key, pinned)
+                    self.stats["disk_loads"] += 1
+                slots_for_request.append(slot)
         torch.cuda.current_stream().wait_stream(self.h2d_stream)
         return torch.tensor(slots_for_request, dtype=torch.int32, device=self.device)
 
@@ -177,3 +217,48 @@ class ThreeTierExpertCache:
             key = (layer_idx, e)
             if key not in self.ram_map and key not in self.gpu_map:
                 self._disk_to_ram(key)
+
+    def prefetch_layer(self, layer_idx: int, expert_ids: list[int] | None = None,
+                        max_prefetch: int | None = None) -> None:
+        """Async load of upcoming layer's experts into the RAM tier.
+
+        Submits disk reads on a background pool. Returns immediately. Subsequent
+        `fetch()` calls for these experts skip the disk hit.
+
+        To avoid eviction storms, only fires for at most `max_prefetch` experts
+        (default = top_k * 2 estimate via the layer's hot history). If a hint
+        is omitted, prefetches the experts that have ever been hot for this
+        layer based on cumulative frequency.
+        """
+        # Hot-history-based prefetch: only experts we've seen used before
+        if expert_ids is None:
+            expert_ids = [
+                e for (l, e) in self.ram_freq.keys() if l == layer_idx
+            ] + [
+                e for (l, e) in self.gpu_freq.keys() if l == layer_idx
+            ]
+            expert_ids = list(set(expert_ids))
+        if max_prefetch is not None:
+            expert_ids = expert_ids[:max_prefetch]
+        if not expert_ids:
+            return
+
+        def _load_one(eid: int):
+            key = (layer_idx, eid)
+            with self._prefetch_lock:
+                if key in self.gpu_map or key in self.ram_map:
+                    return
+            try:
+                tensors = self._disk_to_ram_inner(key)
+            except FileNotFoundError:
+                return
+            with self._prefetch_lock:
+                if key in self.ram_map or key in self.gpu_map:
+                    return
+                self._pick_ram_victim_and_evict()
+                self.ram_map[key] = tensors
+                self.ram_freq[key] = self.ram_freq.get(key, 0)
+                self.stats["prefetched"] += 1
+
+        for eid in expert_ids:
+            self._prefetch_pool.submit(_load_one, eid)

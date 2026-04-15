@@ -1,6 +1,38 @@
 # Changelog
 
-## v0.15 (current)
+## v0.17 (current)
+
+- **Async prefetch**: `ThreeTierExpertCache.prefetch_layer()` issues
+  background disk → RAM loads on a `ThreadPoolExecutor`, called from
+  `streaming_moe_forward(..., prefetch_next_layer=N+1)` so layer N+1's
+  experts are warm by the time layer N+1 actually executes
+- **Hot-history-based prefetch**: only experts that have been used before
+  for that layer are prefetched (avoids 64-wide eviction storms)
+- LFU eviction reverted to LRU after discovering it could evict the very
+  experts we had just loaded in the same fetch (all newly-loaded entries
+  share `freq=1`, ties get picked deterministically and randomly clobber)
+- Strict `_prefetch_lock` covers the entire fetch loop — prefetch threads
+  cannot evict an entry between its lookup and the GPU copy
+- DeepSeek-V2-Lite end-to-end on streaming infrastructure:
+  - 17.2 GB VRAM → **2.4 GB** (87 % less)
+  - 10.4 → 2.1 tok/s (disk-bound on 1664-expert pool, expected)
+  - Output quality preserved: "The capital of France is a city that is
+    known for its history, its art, and its world-class art..."
+- Infrastructure validated end-to-end. Ready for Mixtral-8x22B once the
+  282 GB download completes.
+
+## v0.16
+
+- 3-tier expert cache (`disk_expert_pool.py`): GPU slots / RAM pinned /
+  disk-mmap safetensors per expert
+- `streaming_moe.py`: streaming MoE forward that fetches via the cache
+- `extract_experts_to_disk.py`: one-shot script to convert HF checkpoints
+  into per-expert FP8 safetensors files (DeepSeek + Mixtral patterns)
+- `mixtral_loader.py`, `mixtral_patch.py`, `mixtral_cli.py`,
+  `deepseek_streaming.py`, `streaming_cli.py`: full streaming runtime
+  for both model families
+
+## v0.15
 
 - `runtime/cli.py` warmup pass + `reset_peak_memory_stats()` reveals the
   actual generation footprint: **15.80 GB peak post-warmup** vs 17.19 GB

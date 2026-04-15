@@ -39,10 +39,12 @@ class StreamingMixtralMoE(nn.Module):
     def forward(self, hidden_states: torch.Tensor):
         shape = hidden_states.shape
         x = hidden_states.reshape(-1, self.hidden_dim).to(torch.bfloat16)
+        next_layer = self.layer_idx + 1
+        prefetch = next_layer if next_layer < self.cache.n_layers else None
         out = streaming_moe_forward(
             x, self.w_router, self.cache, self.layer_idx, top_k=self.top_k,
+            prefetch_next_layer=prefetch,
         )
-        # Mixtral returns (out, router_logits) tuple
         return out.reshape(shape), torch.zeros(1, device=x.device)
 
 
