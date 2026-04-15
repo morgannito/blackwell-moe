@@ -75,8 +75,12 @@ def load_expert_to_pinned_ram(
         for k in f.keys():
             t = f.get_tensor(k)
             if t.dtype == torch.float8_e4m3fn or t.dtype.is_floating_point:
-                # Pin for fast H2D
-                out[k] = t.pin_memory() if not t.is_pinned() else t
+                # Pin for fast H2D — fall back to unpinned on OOM
+                # (Windows caps pinnable pages well below RAM size)
+                try:
+                    out[k] = t.pin_memory() if not t.is_pinned() else t
+                except (RuntimeError, torch.cuda.OutOfMemoryError):
+                    out[k] = t
             else:
                 out[k] = t
     return out
