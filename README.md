@@ -39,14 +39,16 @@ Dev on Mac, run on Blackwell box:
 GPU_HOST=user@5080-rig ./scripts/deploy_to_gpu.sh bench
 ```
 
-## Current results (v0.6, RTX 5080)
+## Current results (v0.13, RTX 5080)
 
-| Shape | bf16 | fp8_v3 | int4_v4 | fp8 speedup |
+| Shape | bf16 | fp8_v3 | **fp8_v4 megafuse** | speedup |
 |---|---|---|---|---|
-| Toy (E=16)            | 56k | **366k** | 430k | 6.5× |
-| Qwen3-30B-A3B (E=64)  | 59k | **496k** | 107k | 8.4× |
-| Mixtral-8x7B (E=8)    | 999k | **1.61M** | —    | 1.6× |
-| DeepSeek (E=128)      | 52k | **164k** | 43k  | 3.1× |
+| Qwen3-30B-A3B (E=64)  | 58k | 525k | **538k** | **9.2×** |
+| Mixtral-8x7B (E=8)    | 999k | **1.61M** | tbd  | 1.6× |
+| DeepSeek (E=128)      | 52k | 164k | tbd  | 3.1× |
+| Toy (E=16)            | 56k | 366k | tbd  | 6.5× |
+
+v4 saves 185 MB peak VRAM by eliminating the bf16 SwiGLU intermediate.
 
 FP8 wins on large/medium E, INT4 wins on small E + halves weight VRAM (4 bits vs 8 bits per param). Use FP8 for compute-bound shapes, INT4 when memory-bound.
 

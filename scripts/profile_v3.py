@@ -4,6 +4,10 @@ import torch
 from torch.profiler import ProfilerActivity, profile
 
 from blackwell_moe import fp8_moe_forward_v3, quant_fp8_e4m3
+from blackwell_moe.kernels.fp8_moe_v4 import fp8_moe_forward_v4
+import sys
+USE_V4 = "--v4" in sys.argv
+fp8_fwd = fp8_moe_forward_v4 if USE_V4 else fp8_moe_forward_v3
 
 torch.manual_seed(0)
 T, D, E, K, H = 1024, 2048, 64, 8, 1536
@@ -25,13 +29,13 @@ sd = torch.tensor([float(quant_fp8_e4m3(e_d[i])[1]) for i in range(E)], device=d
 
 # Warmup
 for _ in range(5):
-    fp8_moe_forward_v3(x, wg, eg8, eu8, ed8, sg, su, sd, K)
+    fp8_fwd(x, wg, eg8, eu8, ed8, sg, su, sd, K)
 torch.cuda.synchronize()
 
 with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
               record_shapes=False) as prof:
     for _ in range(10):
-        fp8_moe_forward_v3(x, wg, eg8, eu8, ed8, sg, su, sd, K)
+        fp8_fwd(x, wg, eg8, eu8, ed8, sg, su, sd, K)
     torch.cuda.synchronize()
 
 print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=15))

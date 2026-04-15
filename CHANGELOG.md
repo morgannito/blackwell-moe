@@ -1,6 +1,24 @@
 # Changelog
 
-## v0.12 (current)
+## v0.13 (current)
+
+- **Mega-fusion `fused_swiglu_quant`**: two Triton passes replace the v0.12
+  `mul` + `segment_amax` + `segment_quant` triplet, eliminating the bf16 `h`
+  intermediate materialization
+- Pass 1 (`_swiglu_amax_kernel`) computes silu(g)*u in registers and accumulates
+  per-expert amax via `tl.atomic_max` on a global [E] fp32 tensor
+- Pass 2 (`_swiglu_quant_kernel`) recomputes silu(g)*u with the fixed scale and
+  writes h_fp8 directly
+- New forward `fp8_moe_forward_v4` chains the existing kernels with the fused
+  SwiGLU+quant
+- **Bench (Qwen3-30B-A3B, T=1024)**: v3 525k → v4 538k tok/s (+2.3 %),
+  peak VRAM 2838 → 2654 MB (-185 MB, the bf16 `h` is gone)
+- Profile delta: `aten::mul` 1.17 → 0.74 ms (-37 %), `segment_amax` 0.88 →
+  0.50 ms (-43 %), total CUDA 15.46 → 15.09 ms (-2.4 %)
+- Triton kernel that previously failed to compile under Windows AppControl now
+  loads cleanly in the .venv312 toolchain — no AppControl block this time
+
+## v0.12
 
 - Wired `scatter_add` Triton kernel into `fp8_moe_forward_v3` (was still
   calling `aten::index_add_`). End result: **+5 % throughput** on

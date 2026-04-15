@@ -9,9 +9,10 @@ Public API (v0.9+):
     )
 """
 
-__version__ = "0.12.0"
+__version__ = "0.13.0"
 
 from blackwell_moe.kernels.fp8_moe_v3 import fp8_moe_forward_v3
+from blackwell_moe.kernels.fp8_moe_v4 import fp8_moe_forward_v4
 from blackwell_moe.kernels.fp8_quant import (
     FP8_MAX_E4M3,
     dequant_fp8_e4m3,
@@ -28,6 +29,7 @@ __all__ = [
     "__version__",
     "dequant_fp8_e4m3",
     "fp8_moe_forward_v3",
+    "fp8_moe_forward_v4",
     "int4_group_moe_forward",
     "int4_moe_forward",
     "quant_fp8_e4m3",
