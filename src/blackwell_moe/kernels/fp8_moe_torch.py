@@ -11,11 +11,7 @@ import torch
 import torch.nn.functional as F
 
 
-def _quant_fp8(x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    amax = x.abs().amax().clamp(min=1e-4).to(torch.float32)
-    scale = (448.0 / amax).to(torch.float32)
-    x_s = (x.to(torch.float32) * scale).clamp(-448.0, 448.0).to(torch.float8_e4m3fn)
-    return x_s, scale
+from blackwell_moe.kernels.fp8_quant import quant_fp8_e4m3 as _quant_fp8  # re-export
 
 
 def _scaled_mm(a_fp8, b_fp8, sa, sb, out_dtype=torch.bfloat16):
