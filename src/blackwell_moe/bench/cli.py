@@ -46,7 +46,11 @@ def run(T: int, D: int, E: int, K: int, H: int, device: str = "cuda"):
     e_d = torch.randn(E, H, D, device=device, dtype=dtype) * 0.02
 
     from blackwell_moe.kernels.reference import moe_forward_bf16
-    from blackwell_moe.kernels.fp8_moe import fp8_moe_forward, to_fp8_e4m3
+    from blackwell_moe.kernels.fp8_moe_torch import (
+        fp8_moe_forward_torch as fp8_moe_forward,
+        _quant_fp8 as to_fp8_e4m3_,
+    )
+    to_fp8_e4m3 = to_fp8_e4m3_
 
     # Pre-quantize expert weights (done once at load time in production)
     e_g_fp8, s_g = zip(*[to_fp8_e4m3(e_g[i]) for i in range(E)])

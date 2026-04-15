@@ -8,7 +8,7 @@ license = { text = "Apache-2.0" }
 authors = [{ name = "Morgann Riu" }]
 dependencies = [
     "torch>=2.6.0",
-    "triton>=3.2.0",
+    "triton>=3.2.0; sys_platform != 'win32'",
     "transformers>=4.46",
     "safetensors>=0.4.5",
     "numpy>=1.26",
