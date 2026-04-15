@@ -94,6 +94,24 @@ def run(T: int, D: int, E: int, K: int, H: int, device: str = "cuda"):
         x, w_gate, eg_q, eu_q, ed_q, sg_i4, su_i4, sd_i4, H, D, K
     )
 
+    # INT4 group-scale (v0.9) — requires D and H multiple of 32
+    if D % 32 == 0 and H % 32 == 0:
+        from blackwell_moe.kernels.int4_group import quantize_int4_groups
+        from blackwell_moe.kernels.int4_moe_group import int4_group_moe_forward
+        eg_gq = torch.empty_like(eg_q)
+        eu_gq = torch.empty_like(eu_q)
+        ed_gq = torch.empty_like(ed_q)
+        sg_g = torch.empty((E, D // 32, H), device=device, dtype=dtype)
+        su_g = torch.empty((E, D // 32, H), device=device, dtype=dtype)
+        sd_g = torch.empty((E, H // 32, D), device=device, dtype=dtype)
+        for i in range(E):
+            eg_gq[i], sg_g[i] = quantize_int4_groups(e_g[i])
+            eu_gq[i], su_g[i] = quantize_int4_groups(e_u[i])
+            ed_gq[i], sd_g[i] = quantize_int4_groups(e_d[i])
+        fns["int4_v5_group"] = lambda: int4_group_moe_forward(
+            x, w_gate, eg_gq, eu_gq, ed_gq, sg_g, su_g, sd_g, H, D, K
+        )
+
     results: list[BenchResult] = []
     for name, fn in fns.items():
         ms, mem = _bench(fn, tokens=T)

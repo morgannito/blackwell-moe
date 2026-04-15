@@ -82,7 +82,8 @@ Pipeline: `snapshot_download` (31 GB bf16, 1m36s) → streaming FP8 loader
 - [x] **End-to-end DeepSeek-V2-Lite** — streaming FP8 loader, MoE patching (v0.4-0.5)
 - [x] **INT4 grouped GEMM kernel** — 4× weight VRAM savings (v0.6)
 - [x] **LRU expert cache v0.8** — GPU state tensors, batched fetch, async H2D stream. 99 % hit rate, 50 % VRAM reduction, overhead dropped 11× vs v0.7 (see `docs/BENCH_cache.md`)
-- [ ] Group-scale INT4 (Q4_K_M-style, ~5% error vs current 22%)
+- [x] **Group-scale INT4 v0.9** — Q4_0-style bf16 scale per 32-K block, 22 % → 16 % L1 err on random weights (tighter on trained)
+- [ ] Q4_K_M super-blocks (6-bit scale + 4-bit zero, ~3 % err)
 - [ ] Online SwiGLU+quant kernel (Windows AppControl blocking, WSL2 required)
 - [ ] MLA attention FP8 quantization
 - [ ] vLLM custom-op integration
