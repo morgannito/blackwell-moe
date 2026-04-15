@@ -39,16 +39,29 @@ Dev on Mac, run on Blackwell box:
 GPU_HOST=user@5080-rig ./scripts/deploy_to_gpu.sh bench
 ```
 
+## Current results (v0.2, RTX 5080)
+
+| Shape | bf16 | fp8_v1 naive | fp8_v2 grouped |
+|---|---|---|---|
+| Qwen3-30B-A3B | 53k tok/s | 23k tok/s | **49k tok/s** (2.1× v1) |
+| Mixtral-8x7B | 991k tok/s | 751k tok/s | **965k tok/s** (1.3× v1) |
+| DeepSeek 128e | 47k tok/s | 20k tok/s | **42k tok/s** (2.1× v1) |
+
+→ ~parity with cuBLASLt bf16, 2× faster than naive FP8 dispatch. Full table: `docs/BENCH_v0.2.md`.
+
 ## Roadmap
 
-- [x] Triton FP8 E4M3 grouped GEMM, per-tensor scales
+- [x] Triton FP8 E4M3 GEMM, per-tensor scales
 - [x] Fused top-k router
 - [x] Bench harness + correctness tests
-- [ ] **Blackwell autotune** — BLOCK_M/N/K sweep for sm_120 SM layout
-- [ ] **Fused SwiGLU** — gate & up in one kernel (save one HBM round-trip)
-- [ ] **Per-channel scales** for W_down (tail distribution protection)
-- [ ] **FP8 KV cache** path for full decode loop
-- [ ] **vLLM integration** as custom op
+- [x] **Grouped FP8 GEMM** — single launch, all experts (v0.2)
+- [x] **Autotune BLOCK_M/N/K** for sm_120 (v0.2)
+- [ ] Segment-reduce amax in Triton (kill Python loop)
+- [ ] Fused gate+up grouped GEMM (share X load)
+- [ ] True online SwiGLU+quant (no bf16 intermediate)
+- [ ] Per-channel W_down scales
+- [ ] FP8 KV cache path
+- [ ] vLLM custom-op integration
 
 ## Licence
 
