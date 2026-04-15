@@ -55,18 +55,22 @@ FP8 wins on large/medium E, INT4 wins on small E + halves weight VRAM (4 bits vs
 FP8 correctness: 6.4 % relative L1 error vs bf16 ref (per-tensor E4M3 tolerance).
 Full table: `docs/BENCH_v0.3.md`.
 
-## End-to-end runtime (v0.4-0.5)
+## End-to-end runtime (v0.15)
 
 Real DeepSeek-V2-Lite-Chat (16B, 64 experts, top-6) running on RTX 5080 with
-our FP8 kernels replacing `DeepseekV2MoE.forward`:
+our FP8 kernels replacing `DeepseekV2MoE.forward`, FP8 shared experts, and
+CPU-offloaded `embed_tokens` + `lm_head`:
 
 ```
-Prompt: "The capital of France is"
-Output: "The capital of France is known for its world-class art, rich
-         history, and world-class football..."
-Generated 32 tokens @ 5-7 tok/s
-Peak VRAM: 17.2 GB (overflows 1 GB to WDDM shared memory on 16 GB card)
+Prompt: "Write a short poem about the ocean:"
+Output: "In the midst of the sea, the world is a gentle whisper,
+         A place of stone and a heart's understanding,
+         A wave's gentle pull, the ocean whispers is silence..."
+Generated 52 tokens @ 10.4 tok/s   (up from 5.4 in v0.5 — 1.9× faster)
+Peak VRAM: 15.80 GB (fits the 16 GB card, no WDDM overflow)
 ```
+
+Throughput climb across iterations: 5.4 → 6.1 → 6.4 → **10.4 tok/s**.
 
 Pipeline: `snapshot_download` (31 GB bf16, 1m36s) → streaming FP8 loader
 (routed experts quantized on-the-fly) → `patch_shared_experts` + `patch_deepseek_moe_with_store`

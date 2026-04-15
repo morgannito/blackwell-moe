@@ -34,8 +34,19 @@ def load_model(path: str, patch: bool = True, offload_io: bool = True,
 
 
 @torch.inference_mode()
-def generate(model, tok, prompt: str, max_new_tokens: int = 64):
+def generate(model, tok, prompt: str, max_new_tokens: int = 64,
+              warmup_tokens: int = 8):
     ids = tok(prompt, return_tensors="pt").input_ids.to(model.device)
+
+    # Warmup: amortize Triton autotune + first-time kernel JIT
+    if warmup_tokens > 0:
+        print(f"\nWarmup ({warmup_tokens} tokens, primes Triton autotune)...")
+        _ = model.generate(ids, max_new_tokens=warmup_tokens, do_sample=False,
+                           pad_token_id=tok.eos_token_id)
+        torch.cuda.synchronize()
+        torch.cuda.reset_peak_memory_stats()
+        print(f"VRAM after warmup: {torch.cuda.memory_allocated() / 1e9:.2f} GB")
+
     t0 = time.perf_counter()
     out = model.generate(ids, max_new_tokens=max_new_tokens, do_sample=False,
                          pad_token_id=tok.eos_token_id)
@@ -43,9 +54,8 @@ def generate(model, tok, prompt: str, max_new_tokens: int = 64):
     dt = time.perf_counter() - t0
     n_new = out.shape[1] - ids.shape[1]
     print(f"\nGenerated {n_new} tokens in {dt:.2f}s = {n_new / dt:.1f} tok/s")
-    print(f"Peak VRAM: {torch.cuda.max_memory_allocated() / 1e9:.2f} GB")
+    print(f"Peak VRAM (post-warmup): {torch.cuda.max_memory_allocated() / 1e9:.2f} GB")
     text = tok.decode(out[0], skip_special_tokens=True)
-    # Sanitize for Windows cp1252 console
     return text.encode("ascii", errors="replace").decode("ascii")
 
 

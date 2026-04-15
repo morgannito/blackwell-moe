@@ -1,6 +1,18 @@
 # Changelog
 
-## v0.14 (current)
+## v0.15 (current)
+
+- `runtime/cli.py` warmup pass + `reset_peak_memory_stats()` reveals the
+  actual generation footprint: **15.80 GB peak post-warmup** vs 17.19 GB
+  before. The 1.4 GB delta was Triton autotune scratch buffers from the
+  very first JIT — they get freed and never re-allocated
+- **Generation throughput on RTX 5080 jumps 6.4 → 10.4 tok/s (+62 %)** on
+  DeepSeek-V2-Lite-Chat, because we no longer overflow into WDDM shared
+  memory once the autotune is primed
+- Output quality preserved: "In the midst of the sea, the world is a
+  gentle whisper, A place of stone and a heart's understanding…"
+
+## v0.14
 
 - `runtime/cpu_offload.py`: `CPUEmbedding` and `CPULinear` wrappers keep
   `embed_tokens` and `lm_head` weights on CPU permanently, transferring only
