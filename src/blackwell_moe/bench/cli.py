@@ -51,6 +51,7 @@ def run(T: int, D: int, E: int, K: int, H: int, device: str = "cuda"):
         _quant_fp8 as to_fp8_e4m3_,
     )
     from blackwell_moe.kernels.fp8_moe_v2 import fp8_moe_forward_v2
+    from blackwell_moe.kernels.fp8_moe_v3 import fp8_moe_forward_v3
     to_fp8_e4m3 = to_fp8_e4m3_
 
     # Pre-quantize expert weights (done once at load time in production)
@@ -70,6 +71,9 @@ def run(T: int, D: int, E: int, K: int, H: int, device: str = "cuda"):
             x, w_gate, e_g_fp8, e_u_fp8, e_d_fp8, s_g, s_u, s_d, K
         ),
         "fp8_v2_grouped": lambda: fp8_moe_forward_v2(
+            x, w_gate, e_g_fp8, e_u_fp8, e_d_fp8, s_g, s_u, s_d, K
+        ),
+        "fp8_v3_fused": lambda: fp8_moe_forward_v3(
             x, w_gate, e_g_fp8, e_u_fp8, e_d_fp8, s_g, s_u, s_d, K
         ),
     }

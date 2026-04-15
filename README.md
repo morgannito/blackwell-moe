@@ -39,15 +39,17 @@ Dev on Mac, run on Blackwell box:
 GPU_HOST=user@5080-rig ./scripts/deploy_to_gpu.sh bench
 ```
 
-## Current results (v0.2, RTX 5080)
+## Current results (v0.3, RTX 5080)
 
-| Shape | bf16 | fp8_v1 naive | fp8_v2 grouped |
+| Shape | bf16 cuBLAS | fp8_v3 fused | **speedup** |
 |---|---|---|---|
-| Qwen3-30B-A3B | 53k tok/s | 23k tok/s | **49k tok/s** (2.1× v1) |
-| Mixtral-8x7B | 991k tok/s | 751k tok/s | **965k tok/s** (1.3× v1) |
-| DeepSeek 128e | 47k tok/s | 20k tok/s | **42k tok/s** (2.1× v1) |
+| Qwen3-30B-A3B (E=64)  | 53k tok/s | **448k tok/s** | **8.3×** |
+| Toy (E=16)            | 52k tok/s | **336k tok/s** | 6.4× |
+| DeepSeek (E=128)      | 47k tok/s | **142k tok/s** | 3.0× |
+| Mixtral-8x7B (E=8)    | 999k tok/s | **1.61M tok/s** | 1.6× |
 
-→ ~parity with cuBLASLt bf16, 2× faster than naive FP8 dispatch. Full table: `docs/BENCH_v0.2.md`.
+FP8 correctness: 6.4 % relative L1 error vs bf16 ref (per-tensor E4M3 tolerance).
+Full table: `docs/BENCH_v0.3.md`.
 
 ## Roadmap
 
@@ -56,9 +58,9 @@ GPU_HOST=user@5080-rig ./scripts/deploy_to_gpu.sh bench
 - [x] Bench harness + correctness tests
 - [x] **Grouped FP8 GEMM** — single launch, all experts (v0.2)
 - [x] **Autotune BLOCK_M/N/K** for sm_120 (v0.2)
-- [ ] Segment-reduce amax in Triton (kill Python loop)
-- [ ] Fused gate+up grouped GEMM (share X load)
-- [ ] True online SwiGLU+quant (no bf16 intermediate)
+- [x] **Segment-reduce amax in Triton** — kill Python loop, -64 syncs (v0.3)
+- [x] **Fused gate+up grouped GEMM** — share X load (v0.3)
+- [ ] True online SwiGLU+quant kernel (Windows AppControl blocking, TBD in WSL2)
 - [ ] Per-channel W_down scales
 - [ ] FP8 KV cache path
 - [ ] vLLM custom-op integration
