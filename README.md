@@ -39,14 +39,16 @@ Dev on Mac, run on Blackwell box:
 GPU_HOST=user@5080-rig ./scripts/deploy_to_gpu.sh bench
 ```
 
-## Current results (v0.3, RTX 5080)
+## Current results (v0.6, RTX 5080)
 
-| Shape | bf16 cuBLAS | fp8_v3 fused | **speedup** |
-|---|---|---|---|
-| Qwen3-30B-A3B (E=64)  | 53k tok/s | **448k tok/s** | **8.3×** |
-| Toy (E=16)            | 52k tok/s | **336k tok/s** | 6.4× |
-| DeepSeek (E=128)      | 47k tok/s | **142k tok/s** | 3.0× |
-| Mixtral-8x7B (E=8)    | 999k tok/s | **1.61M tok/s** | 1.6× |
+| Shape | bf16 | fp8_v3 | int4_v4 | fp8 speedup |
+|---|---|---|---|---|
+| Toy (E=16)            | 56k | **366k** | 430k | 6.5× |
+| Qwen3-30B-A3B (E=64)  | 59k | **496k** | 107k | 8.4× |
+| Mixtral-8x7B (E=8)    | 999k | **1.61M** | —    | 1.6× |
+| DeepSeek (E=128)      | 52k | **164k** | 43k  | 3.1× |
+
+FP8 wins on large/medium E, INT4 wins on small E + halves weight VRAM (4 bits vs 8 bits per param). Use FP8 for compute-bound shapes, INT4 when memory-bound.
 
 FP8 correctness: 6.4 % relative L1 error vs bf16 ref (per-tensor E4M3 tolerance).
 Full table: `docs/BENCH_v0.3.md`.
@@ -77,8 +79,12 @@ Pipeline: `snapshot_download` (31 GB bf16, 1m36s) → streaming FP8 loader
 - [x] **Autotune BLOCK_M/N/K** for sm_120 (v0.2)
 - [x] **Segment-reduce amax in Triton** — kill Python loop, -64 syncs (v0.3)
 - [x] **Fused gate+up grouped GEMM** — share X load (v0.3)
-- [ ] True online SwiGLU+quant kernel (Windows AppControl blocking, TBD in WSL2)
-- [ ] Per-channel W_down scales
+- [x] **End-to-end DeepSeek-V2-Lite** — streaming FP8 loader, MoE patching (v0.4-0.5)
+- [x] **INT4 grouped GEMM kernel** — 4× weight VRAM savings (v0.6)
+- [ ] Group-scale INT4 (Q4_K_M-style, ~5% error vs current 22%)
+- [ ] Online SwiGLU+quant kernel (Windows AppControl blocking, WSL2 required)
+- [ ] MLA attention FP8 quantization
+- [ ] vLLM custom-op integration
 - [ ] FP8 KV cache path
 - [ ] vLLM custom-op integration
 

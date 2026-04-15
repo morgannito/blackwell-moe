@@ -52,6 +52,8 @@ def run(T: int, D: int, E: int, K: int, H: int, device: str = "cuda"):
     )
     from blackwell_moe.kernels.fp8_moe_v2 import fp8_moe_forward_v2
     from blackwell_moe.kernels.fp8_moe_v3 import fp8_moe_forward_v3
+    from blackwell_moe.kernels.int4_moe import int4_moe_forward
+    from blackwell_moe.kernels.int4_quant import quantize_int4_per_channel
     to_fp8_e4m3 = to_fp8_e4m3_
 
     # Pre-quantize expert weights (done once at load time in production)
@@ -77,6 +79,20 @@ def run(T: int, D: int, E: int, K: int, H: int, device: str = "cuda"):
             x, w_gate, e_g_fp8, e_u_fp8, e_d_fp8, s_g, s_u, s_d, K
         ),
     }
+    # INT4 path — quantize once, reuse
+    eg_q = torch.empty((E, D, H // 2), device=device, dtype=torch.uint8)
+    eu_q = torch.empty((E, D, H // 2), device=device, dtype=torch.uint8)
+    ed_q = torch.empty((E, H, D // 2), device=device, dtype=torch.uint8)
+    sg_i4 = torch.empty((E, H), device=device, dtype=dtype)
+    su_i4 = torch.empty((E, H), device=device, dtype=dtype)
+    sd_i4 = torch.empty((E, D), device=device, dtype=dtype)
+    for i in range(E):
+        eg_q[i], sg_i4[i] = quantize_int4_per_channel(e_g[i])
+        eu_q[i], su_i4[i] = quantize_int4_per_channel(e_u[i])
+        ed_q[i], sd_i4[i] = quantize_int4_per_channel(e_d[i])
+    fns["int4_v4"] = lambda: int4_moe_forward(
+        x, w_gate, eg_q, eu_q, ed_q, sg_i4, su_i4, sd_i4, H, D, K
+    )
 
     results: list[BenchResult] = []
     for name, fn in fns.items():
