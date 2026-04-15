@@ -8,12 +8,14 @@ import time
 import torch
 from transformers import AutoTokenizer
 
+from blackwell_moe.runtime.cpu_offload import offload_embed_and_lm_head
 from blackwell_moe.runtime.deepseek_patch import patch_deepseek_moe_with_store
 from blackwell_moe.runtime.loader import load_deepseek_fp8_streaming
 from blackwell_moe.runtime.shared_expert_fp8 import patch_shared_experts
 
 
-def load_model(path: str, patch: bool = True, device: str = "cuda"):
+def load_model(path: str, patch: bool = True, offload_io: bool = True,
+                device: str = "cuda"):
     print(f"Loading tokenizer from {path}")
     tok = AutoTokenizer.from_pretrained(path, trust_remote_code=True)
     model, fp8_store = load_deepseek_fp8_streaming(path, device=device)
@@ -23,7 +25,11 @@ def load_model(path: str, patch: bool = True, device: str = "cuda"):
         n = patch_deepseek_moe_with_store(model, fp8_store)
         print(f"Patched {n} DeepseekV2MoE layers with FP8 kernels")
         torch.cuda.empty_cache()
-        print(f"VRAM after patching: {torch.cuda.memory_allocated() / 1e9:.2f} GB")
+        print(f"VRAM after MoE patching: {torch.cuda.memory_allocated() / 1e9:.2f} GB")
+    if offload_io:
+        freed = offload_embed_and_lm_head(model, gpu_device=device)
+        print(f"Offloaded embed_tokens + lm_head to CPU: -{freed} MB GPU")
+        print(f"VRAM after CPU offload: {torch.cuda.memory_allocated() / 1e9:.2f} GB")
     return tok, model
 
 

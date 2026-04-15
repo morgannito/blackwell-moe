@@ -1,6 +1,24 @@
 # Changelog
 
-## v0.13 (current)
+## v0.14 (current)
+
+- `runtime/cpu_offload.py`: `CPUEmbedding` and `CPULinear` wrappers keep
+  `embed_tokens` and `lm_head` weights on CPU permanently, transferring only
+  activations across PCIe — **838 MB of GPU steady-state memory freed** on
+  DeepSeek-V2-Lite-Chat
+- Quality preserved end-to-end: "The capital of France is a passionate,
+  beautiful, and at times, a very unforgiving world..." — coherent text
+- `fp8_moe_forward_v4` (mega-fusion SwiGLU+quant) is **excellent for prefill
+  benches but degrades generation quality** on real models — likely a
+  numerical issue in the `tl.atomic_max` amax accumulation when some experts
+  receive zero tokens. Reverted to v3 in the runtime patch; v4 stays
+  available in `blackwell_moe.fp8_moe_forward_v4` for prefill-heavy
+  experiments
+- VRAM after MoE patch + CPU offload: 16.61 → **15.77 GB steady state**
+  (peak during forward stays at 17.19 GB — Triton autotune scratch + sort
+  intermediates account for the spike)
+
+## v0.13
 
 - **Mega-fusion `fused_swiglu_quant`**: two Triton passes replace the v0.12
   `mul` + `segment_amax` + `segment_quant` triplet, eliminating the bf16 `h`
