@@ -51,6 +51,23 @@ GPU_HOST=user@5080-rig ./scripts/deploy_to_gpu.sh bench
 FP8 correctness: 6.4 % relative L1 error vs bf16 ref (per-tensor E4M3 tolerance).
 Full table: `docs/BENCH_v0.3.md`.
 
+## End-to-end runtime (v0.4-0.5)
+
+Real DeepSeek-V2-Lite-Chat (16B, 64 experts, top-6) running on RTX 5080 with
+our FP8 kernels replacing `DeepseekV2MoE.forward`:
+
+```
+Prompt: "The capital of France is"
+Output: "The capital of France is known for its world-class art, rich
+         history, and world-class football..."
+Generated 32 tokens @ 5-7 tok/s
+Peak VRAM: 17.2 GB (overflows 1 GB to WDDM shared memory on 16 GB card)
+```
+
+Pipeline: `snapshot_download` (31 GB bf16, 1m36s) → streaming FP8 loader
+(routed experts quantized on-the-fly) → `patch_shared_experts` + `patch_deepseek_moe_with_store`
+→ `model.generate()`. See `src/blackwell_moe/runtime/`.
+
 ## Roadmap
 
 - [x] Triton FP8 E4M3 GEMM, per-tensor scales

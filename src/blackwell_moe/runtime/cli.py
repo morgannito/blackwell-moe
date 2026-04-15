@@ -10,6 +10,7 @@ from transformers import AutoTokenizer
 
 from blackwell_moe.runtime.deepseek_patch import patch_deepseek_moe_with_store
 from blackwell_moe.runtime.loader import load_deepseek_fp8_streaming
+from blackwell_moe.runtime.shared_expert_fp8 import patch_shared_experts
 
 
 def load_model(path: str, patch: bool = True, device: str = "cuda"):
@@ -17,9 +18,12 @@ def load_model(path: str, patch: bool = True, device: str = "cuda"):
     tok = AutoTokenizer.from_pretrained(path, trust_remote_code=True)
     model, fp8_store = load_deepseek_fp8_streaming(path, device=device)
     if patch:
+        n_shared = patch_shared_experts(model)
+        print(f"Patched {n_shared} shared experts to FP8")
         n = patch_deepseek_moe_with_store(model, fp8_store)
         print(f"Patched {n} DeepseekV2MoE layers with FP8 kernels")
         torch.cuda.empty_cache()
+        print(f"VRAM after patching: {torch.cuda.memory_allocated() / 1e9:.2f} GB")
     return tok, model
 
 

@@ -28,6 +28,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 from accelerate import init_empty_weights
+from accelerate.hooks import AlignDevicesHook, add_hook_to_module
 from safetensors import safe_open
 from transformers import AutoConfig, AutoModelForCausalLM
 
@@ -131,6 +132,7 @@ def load_deepseek_fp8_streaming(model_dir: str, device: str = "cuda"):
     print(f"Loaded {n_total} tensors total, quantized {n_experts_q} expert weights")
     for p in model.parameters():
         p.requires_grad_(False)
+    torch.cuda.empty_cache()
     return model, fp8_store
 
 
