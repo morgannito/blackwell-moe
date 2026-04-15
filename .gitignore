@@ -1,0 +1,26 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Model weights and data
+models/
+weights/
+*.safetensors
+*.gguf
+*.bin
+
+# Bench outputs
+bench_results/
+*.csv
+*.png
+
+# OS
+.DS_Store
