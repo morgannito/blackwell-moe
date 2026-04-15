@@ -53,6 +53,7 @@ def run(T: int, D: int, E: int, K: int, H: int, device: str = "cuda"):
     from blackwell_moe.kernels.fp8_moe_v2 import fp8_moe_forward_v2
     from blackwell_moe.kernels.fp8_moe_v3 import fp8_moe_forward_v3
     from blackwell_moe.kernels.fp8_moe_v4 import fp8_moe_forward_v4
+    from blackwell_moe.kernels.fp8_moe_small_e import fp8_moe_forward_small_e
     from blackwell_moe.kernels.int4_moe import int4_moe_forward
     from blackwell_moe.kernels.int4_quant import quantize_int4_per_channel
     to_fp8_e4m3 = to_fp8_e4m3_
@@ -83,6 +84,10 @@ def run(T: int, D: int, E: int, K: int, H: int, device: str = "cuda"):
             x, w_gate, e_g_fp8, e_u_fp8, e_d_fp8, s_g, s_u, s_d, K
         ),
     }
+    if E <= 8:
+        fns["fp8_small_e"] = lambda: fp8_moe_forward_small_e(
+            x, w_gate, e_g_fp8, e_u_fp8, e_d_fp8, s_g, s_u, s_d, K
+        )
     # INT4 path — quantize once, reuse
     eg_q = torch.empty((E, D, H // 2), device=device, dtype=torch.uint8)
     eu_q = torch.empty((E, D, H // 2), device=device, dtype=torch.uint8)
