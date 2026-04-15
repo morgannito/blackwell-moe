@@ -12,14 +12,30 @@ import triton.language as tl
 
 
 _CFG = [
+    # Small BLOCK_M, sweep N/K
     triton.Config({"BLOCK_M": 32,  "BLOCK_N": 64,  "BLOCK_K": 64},  num_stages=2, num_warps=4),
     triton.Config({"BLOCK_M": 32,  "BLOCK_N": 128, "BLOCK_K": 64},  num_stages=2, num_warps=4),
+    triton.Config({"BLOCK_M": 32,  "BLOCK_N": 128, "BLOCK_K": 128}, num_stages=3, num_warps=4),
+    triton.Config({"BLOCK_M": 32,  "BLOCK_N": 256, "BLOCK_K": 64},  num_stages=2, num_warps=8),
+    # Mid BLOCK_M
     triton.Config({"BLOCK_M": 64,  "BLOCK_N": 64,  "BLOCK_K": 128}, num_stages=4, num_warps=4),
     triton.Config({"BLOCK_M": 64,  "BLOCK_N": 128, "BLOCK_K": 64},  num_stages=3, num_warps=4),
     triton.Config({"BLOCK_M": 64,  "BLOCK_N": 128, "BLOCK_K": 128}, num_stages=3, num_warps=4),
+    triton.Config({"BLOCK_M": 64,  "BLOCK_N": 128, "BLOCK_K": 64},  num_stages=4, num_warps=4),
     triton.Config({"BLOCK_M": 64,  "BLOCK_N": 256, "BLOCK_K": 64},  num_stages=3, num_warps=8),
+    triton.Config({"BLOCK_M": 64,  "BLOCK_N": 256, "BLOCK_K": 64},  num_stages=4, num_warps=8),
+    # Large BLOCK_M — better SM occupancy when M >> 128
+    triton.Config({"BLOCK_M": 128, "BLOCK_N": 64,  "BLOCK_K": 128}, num_stages=4, num_warps=4),
     triton.Config({"BLOCK_M": 128, "BLOCK_N": 128, "BLOCK_K": 64},  num_stages=3, num_warps=4),
+    triton.Config({"BLOCK_M": 128, "BLOCK_N": 128, "BLOCK_K": 64},  num_stages=4, num_warps=8),
+    triton.Config({"BLOCK_M": 128, "BLOCK_N": 128, "BLOCK_K": 128}, num_stages=3, num_warps=8),
     triton.Config({"BLOCK_M": 128, "BLOCK_N": 256, "BLOCK_K": 64},  num_stages=3, num_warps=8),
+    triton.Config({"BLOCK_M": 128, "BLOCK_N": 256, "BLOCK_K": 64},  num_stages=4, num_warps=8),
+    triton.Config({"BLOCK_M": 128, "BLOCK_N": 256, "BLOCK_K": 128}, num_stages=3, num_warps=8),
+    # Very large BLOCK_M — only viable when M_per_expert is huge (Mixtral)
+    triton.Config({"BLOCK_M": 256, "BLOCK_N": 128, "BLOCK_K": 64},  num_stages=3, num_warps=8),
+    triton.Config({"BLOCK_M": 256, "BLOCK_N": 128, "BLOCK_K": 128}, num_stages=3, num_warps=8),
+    triton.Config({"BLOCK_M": 256, "BLOCK_N": 64,  "BLOCK_K": 64},  num_stages=4, num_warps=8),
 ]
 
 

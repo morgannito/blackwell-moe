@@ -5,19 +5,36 @@ All numbers come from `scripts/profile_v3.py` and `scripts/bench_matrix.py`.
 
 ## Per-kernel CUDA time (Qwen3-30B-A3B shape, T=1024)
 
+### v0.10 baseline
+
 ```
 _fused_gate_up_kernel        7.65 ms   45.91 %   ← largest single contributor
 _grouped_fp8_gemm_kernel     3.84 ms   23.06 %   (down projection)
-aten::index_add_             1.40 ms    8.40 %   ← replaced by Triton scatter (v0.11)
+aten::index_add_             1.40 ms    8.40 %
 aten::mul (SwiGLU)           1.17 ms    7.01 %
 _segment_amax_scale_kernel   0.88 ms    5.31 %
-silu                         0.26 ms    1.57 %
-sort                         0.27 ms    1.56 %
-index gather                 0.26 ms    1.58 %
-copy_                        0.21 ms    1.28 %
 ```
 
-Total CUDA time: 16.65 ms / 10 iterations = **1.66 ms / forward**.
+Total: 16.65 ms / 10 iterations = **1.66 ms / forward** → 493k tok/s.
+
+### v0.12 (after scatter_add wired into v3)
+
+```
+_fused_gate_up_kernel        7.66 ms   49.55 %   (still largest, plateaued at compute bound)
+_grouped_fp8_gemm_kernel     3.84 ms   24.86 %
+aten::mul (SwiGLU)           1.17 ms    7.55 %
+_segment_amax_scale_kernel   0.88 ms    5.72 %
+_scatter_add_kernel          0.25 ms    1.60 %   ← was 1.40 ms (8.40 %) as index_add_
+_segment_quant_fp8_kernel    0.20 ms    1.31 %
+```
+
+Total: 15.46 ms / 10 iterations = **1.55 ms / forward** → 517k tok/s
+**(+5 % throughput vs v0.10, –7 % CUDA time, –82 % on the scatter op alone).**
+
+The wider autotune search (24 configs vs 8 in v0.11) found no better
+grouped-FP8 GEMM tile for sm_120 — we are at the FP8 tensor-core throughput
+ceiling for this shape on consumer Blackwell. Remaining wins must come from
+HBM-bandwidth-side fusions, not compute tiles.
 
 ## Bench matrix snapshot (v0.10)
 

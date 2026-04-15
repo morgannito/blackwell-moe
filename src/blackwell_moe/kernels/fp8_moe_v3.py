@@ -8,6 +8,7 @@ import torch.nn.functional as F
 
 from blackwell_moe.kernels.grouped_fp8 import grouped_fp8_gemm
 from blackwell_moe.kernels.grouped_fp8_gateup import fused_gate_up_gemm
+from blackwell_moe.kernels.scatter import scatter_add
 from blackwell_moe.kernels.segment_ops import (
     segment_fp8_scales,
     segment_quant_fp8,
@@ -65,8 +66,9 @@ def fp8_moe_forward_v3(
         h_fp8, experts_w_down_fp8, offsets, scales_h, scales_down_w,
     )
 
-    # Unpermute + weighted combine
+    # Unpermute + weighted combine — Triton scatter_add (faster than aten::index_add_)
     flat_w = weights.reshape(-1)[sort_perm].to(y_perm.dtype).unsqueeze(-1)
+    weighted = (y_perm * flat_w).to(x.dtype).contiguous()
     out = torch.zeros((T, D), device=x.device, dtype=x.dtype)
-    out.index_add_(0, inverse_idx, (y_perm * flat_w).to(x.dtype))
+    scatter_add(out, inverse_idx, weighted)
     return out

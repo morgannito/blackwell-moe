@@ -1,6 +1,15 @@
 # Changelog
 
-## v0.11 (current)
+## v0.12 (current)
+
+- Wired `scatter_add` Triton kernel into `fp8_moe_forward_v3` (was still
+  calling `aten::index_add_`). End result: **+5 % throughput** on
+  Qwen3-30B-A3B shape (493k → 517k tok/s), **-82 % time** on the scatter op
+- Wider autotune search (20+ configs per grouped GEMM) ran but found no
+  better tile for sm_120 — confirmed we hit the FP8 tensor-core throughput
+  ceiling on consumer Blackwell for this shape
+
+## v0.11
 
 - Custom Triton `scatter_add` kernel — replaces `aten::index_add_` (8 % of
   v0.10 forward) with native bf16 atomic-add on global memory
