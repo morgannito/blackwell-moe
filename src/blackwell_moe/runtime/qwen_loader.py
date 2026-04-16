@@ -45,33 +45,57 @@ def _set_param(model: nn.Module, key: str, tensor: torch.Tensor) -> None:
 
 
 def _remap_key(k: str) -> str:
-    # Shards use multimodal path `model.language_model.layers.X` but the
-    # text-only CausalLM skeleton we built has `model.layers.X`
     return k.replace("model.language_model.", "model.")
+
+
+def _dequant_block_fp8(w: torch.Tensor, scale_inv: torch.Tensor,
+                       block: int = 128) -> torch.Tensor:
+    """Block-scale FP8 dequant: w_bf16 = w_fp8 * scale[i//b, j//b]"""
+    M, N = w.shape
+    Mb, Nb = scale_inv.shape
+    s = scale_inv.to(torch.bfloat16)
+    s = s.repeat_interleave(block, dim=0)[:M]
+    s = s.repeat_interleave(block, dim=1)[:, :N]
+    return w.to(torch.bfloat16) * s
 
 
 def _stream_shard(model: nn.Module, path: Path, device: str,
                     skip_experts: bool, skip_visual: bool) -> tuple[int, int]:
     loaded = skipped = 0
     with safe_open(str(path), framework="pt", device=device) as f:
-        for k in f.keys():
+        all_keys = list(f.keys())
+        kept_keys = set()
+        for k in all_keys:
             if skip_experts and _EXPERT_RE.search(k):
-                skipped += 1
                 continue
             if skip_visual and _VISUAL_RE.search(k):
-                skipped += 1
                 continue
+            kept_keys.add(k)
+        # Pair weight with its weight_scale_inv
+        scale_keys = {k for k in kept_keys if k.endswith(".weight_scale_inv")}
+        weight_keys = kept_keys - scale_keys
+
+        for k in weight_keys:
             remapped = _remap_key(k)
+            scale_k = k.replace(".weight", ".weight_scale_inv")
             try:
                 t = f.get_tensor(k)
             except Exception as e:
                 print(f"  WARN: {k}: {e}")
                 continue
+            if scale_k in scale_keys:
+                try:
+                    scale = f.get_tensor(scale_k)
+                    t = _dequant_block_fp8(t, scale)
+                except Exception as e:
+                    print(f"  WARN dequant {k}: {e}")
+                    continue
             try:
                 _set_param(model, remapped, t)
                 loaded += 1
-            except AttributeError as e:
+            except AttributeError:
                 skipped += 1
+        skipped += len(all_keys) - len(weight_keys)
     return loaded, skipped
 
 
@@ -116,7 +140,25 @@ def load_qwen_streaming(
 
     print(f"Loaded {total_loaded} tensors, skipped {total_skipped}")
 
+    _materialize_rotary(model, device)
+
     for p in model.parameters():
         p.requires_grad_(False)
 
     return model, cfg
+
+
+def _materialize_rotary(model: nn.Module, device: str) -> None:
+    """Ensure rotary buffers (inv_freq, etc.) live on the target device."""
+    n = 0
+    for name, module in model.named_modules():
+        cls = module.__class__.__name__
+        if "Rotary" not in cls and "rope" not in cls.lower():
+            continue
+        # Move any buffer on meta / cpu to device
+        for bname, buf in list(module.named_buffers(recurse=False)):
+            if buf.device.type != device:
+                module._buffers[bname] = buf.to(device)
+                n += 1
+    if n:
+        print(f"Moved {n} rotary buffers to {device}")
