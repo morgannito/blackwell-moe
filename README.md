@@ -2,6 +2,17 @@
 
 FP8 Mixture-of-Experts inference kernels hand-tuned for NVIDIA Blackwell consumer GPUs (sm_120 — RTX 5080/5090).
 
+> ## 🎯 Qwen3.6-35B-A3B-FP8 on RTX 5080 — 5.20 GB VRAM, 1.40 tok/s
+>
+> 35 B total / 3 B active, 256-experts-per-layer hybrid DeltaNet+MoE, block-scale FP8,
+> full streaming disk path. Tiny footprint leaves room for other GPU workloads:
+>
+> ```
+> Prompt : "The capital of France is"
+> Output : "The capital of France is Paris, a city renowned for its iconic"
+> VRAM   : 5.20 GB peak | 1.40 tok/s | 8 tokens in 5.7 s
+> ```
+>
 > ## 🚀 Mixtral-8x22B (141 B params) running on a single RTX 5080 (16 GB)
 >
 > **Peak VRAM 12.31 GB**, coherent generation, 0.07 tok/s (disk-bound, `gpu_slots=2`).

@@ -1,6 +1,25 @@
 # Changelog
 
-## v0.20 (current)
+## v0.21 (current)
+
+- **Qwen3.6-35B-A3B-FP8 running end-to-end on RTX 5080** (hybrid DeltaNet
+  + 256-experts-per-layer sparse MoE, block-scale FP8)
+  - Peak VRAM **5.20 GB** (tiny footprint, leaves plenty of room for
+    concurrent workloads)
+  - **1.40 tok/s** with `cache_size=2` per-layer + NVMe disk streaming
+    (20× faster than Mixtral-8x22B streaming at 0.07 tok/s)
+  - Output coherent: "The capital of France is Paris, a city renowned for
+    its iconic"
+- `qwen_loader.py` — config hoist (multimodal `text_config` attrs -> root),
+  key remap (`model.language_model.*` -> `model.*`), on-load block-FP8
+  dequant for non-expert weights, rotary buffer device move
+- `qwen_patch.py` — `LayerShardReader` (mmap per-layer shard) +
+  `StreamingQwenMoE` (FP8 cache, lazy dequant, OOM-retry with
+  `empty_cache` + cache flush, periodic `empty_cache` every 8 layers to
+  combat Windows fragmentation — `expandable_segments` unsupported on
+  Windows torch build)
+
+## v0.20
 
 - **Mixtral-8x22B (141 B params) running end-to-end on RTX 5080 (16 GB VRAM)**
   - Peak VRAM **12.31 GB** with CPU-offloaded embed/lm_head + FP8 streaming experts

@@ -37,7 +37,7 @@ def _dequant_block_fp8(w_fp8: torch.Tensor, scale_inv: torch.Tensor,
     scale = scale_inv.to(torch.bfloat16)
     scale_full = scale.repeat_interleave(block, dim=0)[:M]
     scale_full = scale_full.repeat_interleave(block, dim=1)[:, :N]
-    return w * scale_full
+    return (w * scale_full).contiguous()
 
 
 class LayerShardReader:
@@ -86,7 +86,12 @@ class StreamingQwenMoE(nn.Module):
         if eid in self._cache:
             self._cache.move_to_end(eid)
             return self._cache[eid]
-        weights = self.reader.load_expert_fp8(eid, device="cuda")
+        try:
+            weights = self.reader.load_expert_fp8(eid, device="cuda")
+        except torch.cuda.OutOfMemoryError:
+            self._cache.clear()
+            torch.cuda.empty_cache()
+            weights = self.reader.load_expert_fp8(eid, device="cuda")
         self._cache[eid] = weights
         if len(self._cache) > self.cache_size:
             self._cache.popitem(last=False)
@@ -121,9 +126,13 @@ class StreamingQwenMoE(nn.Module):
             del w_d, h
             weight = routing_weights[token_idx, k_idx].unsqueeze(-1).to(y.dtype)
             out.index_add_(0, token_idx, (y * weight).to(out.dtype))
+            del y, weight
 
         shared_gate = torch.sigmoid(self.shared_expert_gate(x))
         out = out + shared_gate * shared
+        # End-of-layer: free cold cache entries' dequant intermediates
+        if self.layer_idx % 8 == 7:
+            torch.cuda.empty_cache()
         return out.view(bsz, seq_len, hidden_dim)
 
 
